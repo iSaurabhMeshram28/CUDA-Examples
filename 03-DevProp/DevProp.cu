@@ -1,103 +1,120 @@
-#include <stdio.h>
-int main(void)
-{	
-    void PrintCUDADeviceProperties(void);	
-    PrintCUDADeviceProperties();
-    return 0; // Added return statement
-}
+#include <iostream>
+#include <cuda_runtime.h>
 
-void PrintCUDADeviceProperties(void)
-{
-    printf("*********************************\n");
-    printf("CUDA INFORMATION:\n");
-    printf("*********************************\n");
-    cudaError_t ret_cuda_rt;
-    int dev_count;
-    ret_cuda_rt = cudaGetDeviceCount(&dev_count);
-    if (ret_cuda_rt != cudaSuccess)
-    {
-        printf("CUDA Runtime API Error - cudaGetDeviceCount() Failed Due To %s.\n", cudaGetErrorString(ret_cuda_rt));
-    }
-    else if (dev_count == 0)
-    {
-        printf("There Is No CUDA Supported Device On This System.\n"); // Fixed typo
+class CudaDeviceProperties {
+public:
+    void displayDeviceProperties();
+
+private:
+    void printHeader(const std::string& header);
+    void printDriverAndRuntimeInfo();
+    void printDeviceGeneralInfo(const cudaDeviceProp& devProp, int deviceId);
+    void printDeviceMemoryInfo(const cudaDeviceProp& devProp);
+    void printDeviceMultiprocessorInfo(const cudaDeviceProp& devProp);
+    void printDeviceThreadInfo(const cudaDeviceProp& devProp);
+};
+
+void CudaDeviceProperties::displayDeviceProperties() {
+    printHeader("CUDA INFORMATION");
+
+    int deviceCount = 0;
+    cudaError_t ret = cudaGetDeviceCount(&deviceCount);
+    if (ret != cudaSuccess) {
+        std::cerr << "CUDA Runtime API Error - cudaGetDeviceCount() Failed: " 
+                  << cudaGetErrorString(ret) << std::endl;
         return;
     }
-    else
-    {
-        printf("Total Number Of CUDA Supporting GPU Device/Devices On This System: %d\n", dev_count); // Fixed spacing
-        for (int i = 0; i < dev_count; i++)
-        {
-            cudaDeviceProp dev_prop;
-            int driverVersion = 0, runtimeVersion = 0;
-            ret_cuda_rt = cudaGetDeviceProperties(&dev_prop, i);
-            if (ret_cuda_rt != cudaSuccess)
-            {
-                printf("%s in %s at line %d\n", cudaGetErrorString(ret_cuda_rt), __FILE__, __LINE__);
-                return;
-            }
-            printf("\n");
-            cudaDriverGetVersion(&driverVersion);
-            cudaRuntimeGetVersion(&runtimeVersion);
-            printf("\n");
-            printf("************************************\n");
-            printf("*** CUDA DRIVER AND RUNTIME INFORMATION ****\n");
-            printf("***********************************\n");
-            printf("\n");
-            printf("CUDA Driver Version: %d.%d\n", driverVersion / 1000, (driverVersion % 100) / 10);
-            printf("CUDA Runtime Version: %d.%d\n", runtimeVersion / 1000, (runtimeVersion % 100) / 10);
-            printf("\n");
-            printf("*****************************************\n");
-            printf("**** GPU DEVICE GENERAL INFORMATION ****\n");
-            printf("*****************************************\n");
-            printf("\n");
-            printf("GPU Device Number: %d\n", i);
-            printf("GPU Device Name: %s\n", dev_prop.name);
-            printf("GPU Device Compute Capability: %d.%d\n", dev_prop.major, dev_prop.minor);
-            printf("GPU Device Clock Rate: %d\n", dev_prop.clockRate);
-            printf("GPU Device Type: ");
-            if (dev_prop.integrated)
-                printf("Integrated (On-Board)\n");
-            else
-                printf("Discrete (Card)\n");
 
-            printf("\n");
-            printf("******************************************\n");
-            printf("***** GPU DEVICE MEMORY INFORMATION ******\n"); // Fixed typo
-            printf("******************************************\n");
-            printf("\n");
-            printf("GPU Device Total Memory: %.0f GB = %.0f MB = %llu Bytes\n",
-                ((float)dev_prop.totalGlobalMem / 1048576.0f) / 1024.0f, (float)dev_prop.totalGlobalMem /
-                1048576.0f, (unsigned long long) dev_prop.totalGlobalMem);
-            printf("GPU Device Constant Memory: %lu Bytes\n", (unsigned long)dev_prop.totalConstMem);
-            printf("GPU Device Shared Memory Per SMProcessor: %lu Bytes\n", (unsigned long)dev_prop.sharedMemPerBlock);
+    if (deviceCount == 0) {
+        std::cout << "There is no CUDA-supported device on this system." << std::endl;
+        return;
+    }
 
-            printf("\n");
-            printf("*************************************************\n");
-            printf("***** GPU DEVICE MULTIPROCESSOR INFORMATION *****\n");
-            printf("*************************************************\n");
-            printf("\n");
-            printf("GPU Device Number Of SMProcessors: %d\n", dev_prop.multiProcessorCount);
-            printf("GPU Device Number Of Registers Per SMProcessor: %d\n", dev_prop.regsPerBlock);
+    std::cout << "Total Number of CUDA Supporting GPU Devices: " << deviceCount << std::endl;
 
-            printf("\n");
-            printf("****************************************\n");
-            printf("**** GPU DEVICE THREAD INFORMATION ****\n");
-            printf("****************************************\n");
-            printf("\n");
-            printf("GPU Device Maximum Number Of Threads Per SMProcessor: %d\n", dev_prop.maxThreadsPerMultiProcessor);
-            printf("GPU Device Maximum Number Of Threads Per Block: %d\n", dev_prop.maxThreadsPerBlock);
-            printf("GPU Device Threads In Warp: %d\n", dev_prop.warpSize);
-            printf("GPU Device Maximum Thread Dimensions (%d, %d, %d)\n", dev_prop.maxThreadsDim[0], dev_prop.maxThreadsDim[1], dev_prop.maxThreadsDim[2]);
-            printf("GPU Device Maximum Grid Dimensions (%d, %d, %d)\n", dev_prop.maxGridSize[0], dev_prop.maxGridSize[1],
-                dev_prop.maxGridSize[2]);
-            printf("\n");
-            printf("GPU Device has ECC support: %s\n", dev_prop.ECCEnabled ? "Enabled" : "Disabled");
+    for (int i = 0; i < deviceCount; ++i) {
+        cudaDeviceProp devProp;
+        ret = cudaGetDeviceProperties(&devProp, i);
+        if (ret != cudaSuccess) {
+            std::cerr << "Error retrieving properties for device " << i << ": " 
+                      << cudaGetErrorString(ret) << std::endl;
+            continue;
+        }
+
+        printDriverAndRuntimeInfo();
+        printDeviceGeneralInfo(devProp, i);
+        printDeviceMemoryInfo(devProp);
+        printDeviceMultiprocessorInfo(devProp);
+        printDeviceThreadInfo(devProp);
+    }
+}
+
+void CudaDeviceProperties::printHeader(const std::string& header) {
+    std::cout << "*********************************" << std::endl;
+    std::cout << header << std::endl;
+    std::cout << "*********************************" << std::endl;
+}
+
+void CudaDeviceProperties::printDriverAndRuntimeInfo() {
+    int driverVersion = 0, runtimeVersion = 0;
+    cudaDriverGetVersion(&driverVersion);
+    cudaRuntimeGetVersion(&runtimeVersion);
+
+    printHeader("CUDA DRIVER AND RUNTIME INFORMATION");
+    std::cout << "CUDA Driver Version: " << driverVersion / 1000 << "." 
+              << (driverVersion % 100) / 10 << std::endl;
+    std::cout << "CUDA Runtime Version: " << runtimeVersion / 1000 << "." 
+              << (runtimeVersion % 100) / 10 << std::endl;
+}
+
+void CudaDeviceProperties::printDeviceGeneralInfo(const cudaDeviceProp& devProp, int deviceId) {
+    printHeader("GPU DEVICE GENERAL INFORMATION");
+    std::cout << "GPU Device Number: " << deviceId << std::endl;
+    std::cout << "GPU Device Name: " << devProp.name << std::endl;
+    std::cout << "GPU Device Compute Capability: " << devProp.major << "." << devProp.minor << std::endl;
+    std::cout << "GPU Device Clock Rate: " << devProp.clockRate << " kHz" << std::endl;
+    std::cout << "GPU Device Type: " << (devProp.integrated ? "Integrated (On-Board)" : "Discrete (Card)") << std::endl;
+}
+
+void CudaDeviceProperties::printDeviceMemoryInfo(const cudaDeviceProp& devProp) {
+    printHeader("GPU DEVICE MEMORY INFORMATION");
+    std::cout << "GPU Device Total Memory: " 
+              << static_cast<float>(devProp.totalGlobalMem) / (1024.0f * 1024.0f * 1024.0f) << " GB" << std::endl;
+    std::cout << "GPU Device Constant Memory: " << devProp.totalConstMem << " Bytes" << std::endl;
+    std::cout << "GPU Device Shared Memory Per SMProcessor: " << devProp.sharedMemPerBlock << " Bytes" << std::endl;
+}
+
+void CudaDeviceProperties::printDeviceMultiprocessorInfo(const cudaDeviceProp& devProp) {
+    printHeader("GPU DEVICE MULTIPROCESSOR INFORMATION");
+    std::cout << "GPU Device Number of SMProcessors: " << devProp.multiProcessorCount << std::endl;
+    std::cout << "GPU Device Number of Registers Per SMProcessor: " << devProp.regsPerBlock << std::endl;
+}
+
+void CudaDeviceProperties::printDeviceThreadInfo(const cudaDeviceProp& devProp) {
+    printHeader("GPU DEVICE THREAD INFORMATION");
+    std::cout << "GPU Device Maximum Number of Threads Per SMProcessor: " 
+              << devProp.maxThreadsPerMultiProcessor << std::endl;
+    std::cout << "GPU Device Maximum Number of Threads Per Block: " << devProp.maxThreadsPerBlock << std::endl;
+    std::cout << "GPU Device Threads in Warp: " << devProp.warpSize << std::endl;
+    std::cout << "GPU Device Maximum Thread Dimensions: (" 
+              << devProp.maxThreadsDim[0] << ", " 
+              << devProp.maxThreadsDim[1] << ", " 
+              << devProp.maxThreadsDim[2] << ")" << std::endl;
+    std::cout << "GPU Device Maximum Grid Dimensions: (" 
+              << devProp.maxGridSize[0] << ", " 
+              << devProp.maxGridSize[1] << ", " 
+              << devProp.maxGridSize[2] << ")" << std::endl;
+    std::cout << "GPU Device has ECC support: " << (devProp.ECCEnabled ? "Enabled" : "Disabled") << std::endl;
 
 #if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-            printf("GPU Device CUDA Driver Mode (TCC Or WDDM): %s\n", dev_prop.tccDriver ? "TCC (Tesla Compute Cluster Driver)" : "WDDM (Windows Display Driver Model)"); // Fixed spacing
+    std::cout << "GPU Device CUDA Driver Mode (TCC or WDDM): " 
+              << (devProp.tccDriver ? "TCC (Tesla Compute Cluster Driver)" : "WDDM (Windows Display Driver Model)") 
+              << std::endl;
 #endif
-            printf("\n******************************\n");
-        }
-    }
+}
+
+int main() {
+    CudaDeviceProperties cudaProps;
+    cudaProps.displayDeviceProperties();
+    return 0;
 }

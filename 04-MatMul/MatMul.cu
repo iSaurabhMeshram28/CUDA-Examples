@@ -1,212 +1,213 @@
-#include <stdio.h>
+#include <iostream>
 #include <cuda.h>
 #include "helper_timer.h"
+
 #define BLOCK_WIDTH 32
 
-int *hostA = NULL;
-int *hostB = NULL;
-int *hostC = NULL;
-int *gold = NULL;
-int *deviceA = NULL;
-int *deviceB = NULL;
-int *deviceC = NULL;
-float timeOnCPU = 0.0f;
-float timeOnGPU = 0.0f;
+// Declare the kernel function outside the class
 __global__ void matMulGPU(int *A, int *B, int *C, int numARows, int numAColumns, int numBColumns, int numCColumns)
 {
-
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
 	int column = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if ((row < numARows) && (column < numBColumns))
+	if (row < numARows && column < numBColumns)
 	{
 		int value = 0;
-		for (int k = 0; k < numAColumns; k++)
+		for (int k = 0; k < numAColumns; ++k)
 		{
-			int a = A[row * numAColumns + k];
-			int b = B[k * numBColumns + column];
-			value += a * b;
+			value += A[row * numAColumns + k] * B[k * numBColumns + column];
 		}
 		C[row * numCColumns + column] = value;
 	}
 }
 
-int main(int argc, char *argv[])
+class MatrixMultiplication
 {
-	void InitA(int *data, int, int);
-	void InitB(int *data, int, int);
-	void matMulCPU(int *, int *, int *, int, int, int, int);
-	void cleanup(void);
+private:
+	int *hostA, *hostB, *hostC, *gold;
+	int *deviceA, *deviceB, *deviceC;
+	float timeOnCPU, timeOnGPU;
 
-	int numARows = BLOCK_WIDTH;
-	int numAColumns = BLOCK_WIDTH;
-	int numBRows = BLOCK_WIDTH;
-	int numBColumns = BLOCK_WIDTH;
+	int numARows, numAColumns, numBRows, numBColumns;
+	int numCRows, numCColumns, numGoldRows, numGoldColumns;
+	int sizeA, sizeB, sizeC, sizeGold;
 
-	int numCRows = numARows;
-	int numCColumns = numBColumns;
-	int numGoldRows = numARows;
-	int numGoldColumns = numBColumns;
-	int sizeA = numARows * numAColumns * sizeof(int);
-	int sizeB = numBRows * numBColumns * sizeof(int);
-	int sizeC = numCRows * numCColumns * sizeof(int);
-	int sizeGold = numGoldRows * numGoldColumns * sizeof(int);
-	cudaError_t result = cudaSuccess;
-	hostA = (int *)malloc(sizeA);
-	if (hostA == NULL)
-	{
-		printf("Host Memory allocation is failed for hostA Matrix.\n");
-		cleanup();
-		exit(EXIT_FAILURE);
-	}
-	hostB = (int *)malloc(sizeB);
-	if (hostB == NULL)
-	{
-		printf("Host Memory allocation is failed for hostB Matrix.\n");
-		cleanup();
-		exit(EXIT_FAILURE);
-	}
-	hostC = (int *)malloc(sizeC);
-	if (hostC == NULL)
-	{
-		printf("Host Memory allocation is failed for hostC Matrix.\n");
-		cleanup();
-		exit(EXIT_FAILURE);
-	}
-	gold = (int *)malloc(sizeGold);
-	if (gold == NULL)
-	{
-		printf("Host Memory allocation is failed for gold Matrix.\n");
-		cleanup();
-		exit(EXIT_FAILURE);
-	}
-	// printing matrix dimensions and
-	printf("The Dimensions Of Matrix for 'hostA' : %d x %d\n", numARows, numAColumns);
-	printf("The Dimensions Of Matrix for 'hostB' : %d x %d\n", numBRows, numBColumns);
-	printf("The Dimensions Of Matrix for 'hostC' : %d x %d\n", numCRows, numCColumns);
-	printf("The Dimensions Of Matrix 'gold Are : %d x %d\n", numGoldRows, numGoldColumns);
+	void allocateHostMemory();
+	void allocateDeviceMemory();
+	void initializeMatrices();
+	void copyHostToDevice();
+	void copyDeviceToHost();
+	void cleanup();
 
-	printf("Size Of Matrix hostA = %d\n", sizeA);
-	printf("Size Of Matrix hostB = %d\n", sizeB);
-	printf("Size Of Matrix hostC = %d\n", sizeC);
-	printf("Size Of Matrix gold = %d\n", sizeGold);
-	InitA(hostA, numARows, numAColumns);
-	InitB(hostB, numBRows, numBColumns);
+	static void initMatrixA(int *data, int rows, int cols);
+	static void initMatrixB(int *data, int rows, int cols);
+	static void matMulCPU(int *A, int *B, int *C, int numARows, int numAColumns, int numBColumns, int numCColumns, float &timeOnCPU);
+
+	void compareResults();
+
+public:
+	MatrixMultiplication();
+	~MatrixMultiplication();
+	void execute();
+};
+
+MatrixMultiplication::MatrixMultiplication()
+	: hostA(nullptr), hostB(nullptr), hostC(nullptr), gold(nullptr),
+	  deviceA(nullptr), deviceB(nullptr), deviceC(nullptr),
+	  timeOnCPU(0.0f), timeOnGPU(0.0f)
+{
+	numARows = numAColumns = numBRows = numBColumns = 64;
+	numCRows = numARows;
+	numCColumns = numBColumns;
+	numGoldRows = numARows;
+	numGoldColumns = numBColumns;
+
+	sizeA = numARows * numAColumns * sizeof(int);
+	sizeB = numBRows * numBColumns * sizeof(int);
+	sizeC = numCRows * numCColumns * sizeof(int);
+	sizeGold = numGoldRows * numGoldColumns * sizeof(int);
+}
+
+MatrixMultiplication::~MatrixMultiplication()
+{
+	cleanup();
+}
+
+void MatrixMultiplication::allocateHostMemory()
+{
+	cudaMallocHost((void **)&hostA, sizeA);
+	cudaMallocHost((void **)&hostB, sizeB);
+	cudaMallocHost((void **)&hostC, sizeC);
+	cudaMallocHost((void **)&gold, sizeGold);
+
+	if (!hostA || !hostB || !hostC || !gold)
+	{
+		std::cerr << "Host memory allocation failed!" << std::endl;
+		cleanup();
+		exit(EXIT_FAILURE);
+	}
+}
+
+void MatrixMultiplication::allocateDeviceMemory()
+{
+	cudaError_t result;
+
 	result = cudaMalloc((void **)&deviceA, sizeA);
 	if (result != cudaSuccess)
 	{
-		printf("Device Memory allocation is failed for deviceA matrix.\n");
+		std::cerr << "Device memory allocation failed for deviceA!" << std::endl;
 		cleanup();
 		exit(EXIT_FAILURE);
 	}
+
 	result = cudaMalloc((void **)&deviceB, sizeB);
 	if (result != cudaSuccess)
 	{
-		printf("Device Memory allocation is failed for deviceB matrix.\n");
+		std::cerr << "Device memory allocation failed for deviceB!" << std::endl;
 		cleanup();
 		exit(EXIT_FAILURE);
 	}
+
 	result = cudaMalloc((void **)&deviceC, sizeC);
 	if (result != cudaSuccess)
 	{
-		printf("Device Memory allocation is failed for deviceC matrix.\n");
+		std::cerr << "Device memory allocation failed for deviceC!" << std::endl;
 		cleanup();
 		exit(EXIT_FAILURE);
 	}
+}
+
+void MatrixMultiplication::initializeMatrices()
+{
+	initMatrixA(hostA, numARows, numAColumns);
+	initMatrixB(hostB, numBRows, numBColumns);
+}
+
+void MatrixMultiplication::copyHostToDevice()
+{
+	cudaError_t result;
+
 	result = cudaMemcpy(deviceA, hostA, sizeA, cudaMemcpyHostToDevice);
 	if (result != cudaSuccess)
 	{
-		printf("Host to Device Data Copy is failed for deviceA matrix.\n");
+		std::cerr << "Host to Device copy failed for deviceA!" << std::endl;
 		cleanup();
 		exit(EXIT_FAILURE);
 	}
+
 	result = cudaMemcpy(deviceB, hostB, sizeB, cudaMemcpyHostToDevice);
 	if (result != cudaSuccess)
 	{
-		printf("Host to Device Data Copy is failed for deviceB matrix.\n");
+		std::cerr << "Host to Device copy failed for deviceB!" << std::endl;
 		cleanup();
 		exit(EXIT_FAILURE);
 	}
-	dim3 dimGrid((numBColumns + BLOCK_WIDTH - 1) / BLOCK_WIDTH, (numARows + BLOCK_WIDTH - 1) / BLOCK_WIDTH, 1);
-	dim3 dimBlock = dim3(BLOCK_WIDTH, BLOCK_WIDTH, 1);
-	StopWatchInterface *timer = NULL;
-	sdkCreateTimer(&timer);
-	sdkStartTimer(&timer);
+}
 
-	matMulGPU<<<dimGrid, dimBlock>>>(deviceA, deviceB, deviceC, numARows, numAColumns, numBColumns, numCColumns);
+void MatrixMultiplication::copyDeviceToHost()
+{
+	cudaError_t result;
 
-	sdkStopTimer(&timer);
-	timeOnGPU = sdkGetTimerValue(&timer);
-	sdkDeleteTimer(&timer);
-	timer = NULL;
 	result = cudaMemcpy(hostC, deviceC, sizeC, cudaMemcpyDeviceToHost);
 	if (result != cudaSuccess)
 	{
-		printf("Device to Host Data Copy is failed for hostC matrix.\n");
+		std::cerr << "Device to Host copy failed for hostC!" << std::endl;
 		cleanup();
 		exit(EXIT_FAILURE);
 	}
-	matMulCPU(hostA, hostB, gold, numARows, numAColumns, numBColumns, numCColumns);
-	int breakvalue = -1;
-	bool bAccuracy = true;
-	for (int i = 0; i < numCRows * numCColumns; i++)
-	{
-		int vall = gold[i];
-		int val2 = hostC[i];
-		if (abs(vall - val2) > 1e-5)
-		{
-			bAccuracy = false;
-			breakvalue = i;
-			break;
-		}
-	}
-
-	char str[128];
-	if (bAccuracy == false)
-		sprintf(str, "Comparison of CPU and GPU Matrix Multiplication is not accurate at array index % d", breakvalue);
-	else
-		sprintf(str, "Comparison of CPU and GPU Matrix Multiplication is accurate");
-
-	printf("Time taken for Matrix Multiplication on CPU = %.6f\n", timeOnCPU);
-	printf("Time taken for Matrix Multiplication on GPU = %.6f\n", timeOnGPU);
-	printf("%s\n", str);
-	cleanup();
-	return (0);
 }
 
-void InitA(int *data, int row, int col)
+void MatrixMultiplication::cleanup()
 {
+	if (deviceC)
+		cudaFree(deviceC);
+	if (deviceB)
+		cudaFree(deviceB);
+	if (deviceA)
+		cudaFree(deviceA);
+	if (gold)
+		cudaFreeHost(gold);
+	if (hostC)
+		cudaFreeHost(hostC);
+	if (hostB)
+		cudaFreeHost(hostB);
+	if (hostA)
+		cudaFreeHost(hostA);
 
+	deviceC = deviceB = deviceA = nullptr;
+	gold = hostC = hostB = hostA = nullptr;
+}
+
+void MatrixMultiplication::initMatrixA(int *data, int rows, int cols)
+{
 	int num = 1;
-	for (int i = 0; i < row; i++)
+	for (int i = 0; i < rows; ++i)
 	{
-		for (int j = 0; j < col; j++)
+		for (int j = 0; j < cols; ++j)
 		{
-			*(data + i * col + j) = num;
-			num++;
+			data[i * cols + j] = num++;
 		}
 	}
 }
 
-void InitB(int *data, int row, int col)
+void MatrixMultiplication::initMatrixB(int *data, int rows, int cols)
 {
-
 	int num = BLOCK_WIDTH;
-	for (int i = 0; i < row; i++)
+	for (int i = 0; i < rows; ++i)
 	{
-		for (int j = 0; j < col; j++)
+		for (int j = 0; j < cols; ++j)
 		{
-			*(data + i * col + j) = num;
-			num--;
+			data[i * cols + j] = num--;
 		}
 	}
 }
 
-void matMulCPU(int *A, int *B, int *C, int numARows, int numAColumns, int numBColumns, int numCColumns)
+void MatrixMultiplication::matMulCPU(int *A, int *B, int *C, int numARows, int numAColumns, int numBColumns, int numCColumns, float &timeOnCPU)
 {
-	StopWatchInterface *timer = NULL;
+	StopWatchInterface *timer = nullptr;
 	sdkCreateTimer(&timer);
 	sdkStartTimer(&timer);
+
 	for (int i = 0; i < numARows; ++i)
 	{
 		for (int j = 0; j < numBColumns; ++j)
@@ -214,54 +215,83 @@ void matMulCPU(int *A, int *B, int *C, int numARows, int numAColumns, int numBCo
 			int value = 0;
 			for (int k = 0; k < numAColumns; ++k)
 			{
-				int a = A[i * numAColumns + k];
-				int b = B[k * numBColumns + j];
-				value += a * b;
+				value += A[i * numAColumns + k] * B[k * numBColumns + j];
 			}
 			C[i * numCColumns + j] = value;
 		}
 	}
+
 	sdkStopTimer(&timer);
 	timeOnCPU = sdkGetTimerValue(&timer);
 	sdkDeleteTimer(&timer);
-	timer = NULL;
 }
 
-void cleanup(void)
+void MatrixMultiplication::compareResults()
 {
-	if (deviceC)
+	bool isAccurate = true;
+	int breakIndex = -1;
+
+	for (int i = 0; i < numCRows * numCColumns; ++i)
 	{
-		cudaFree(deviceC);
-		deviceC = NULL;
+		if (abs(gold[i] - hostC[i]) > 1e-5)
+		{
+			isAccurate = false;
+			breakIndex = i;
+			break;
+		}
 	}
-	if (deviceB)
+
+	if (isAccurate)
 	{
-		cudaFree(deviceB);
-		deviceB = NULL;
+		std::cout << "Comparison of CPU and GPU results is accurate." << std::endl;
 	}
-	if (deviceA)
+	else
 	{
-		cudaFree(deviceA);
-		deviceA = NULL;
+		std::cerr << "Mismatch at index " << breakIndex << " between CPU and GPU results." << std::endl;
 	}
-	if (gold)
-	{
-		free(gold);
-		gold = NULL;
-	}
-	if (hostC)
-	{
-		free(hostC);
-		hostC = NULL;
-	}
-	if (hostB)
-	{
-		free(hostB);
-		hostB = NULL;
-	}
-	if (hostA)
-	{
-		free(hostA);
-		hostA = NULL;
-	}
+}
+
+void MatrixMultiplication::execute()
+{
+	allocateHostMemory();
+	allocateDeviceMemory();
+	initializeMatrices();
+
+	std::cout << "Matrix Dimensions:" << std::endl;
+	std::cout << "A: " << numARows << "x" << numAColumns << ", B: " << numBRows << "x" << numBColumns << std::endl;
+
+	copyHostToDevice();
+
+	dim3 dimGrid((numBColumns + BLOCK_WIDTH - 1) / BLOCK_WIDTH, (numARows + BLOCK_WIDTH - 1) / BLOCK_WIDTH, 1);
+	dim3 dimBlock(BLOCK_WIDTH, BLOCK_WIDTH, 1);
+
+	StopWatchInterface *timer = nullptr;
+	sdkCreateTimer(&timer);
+
+	// Measure only kernel execution time
+	sdkStartTimer(&timer);
+	matMulGPU<<<dimGrid, dimBlock>>>(deviceA, deviceB, deviceC, numARows, numAColumns, numBColumns, numCColumns);
+	cudaDeviceSynchronize(); // Ensure kernel execution is complete
+	sdkStopTimer(&timer);
+
+	timeOnGPU = sdkGetTimerValue(&timer);
+	sdkDeleteTimer(&timer);
+
+	copyDeviceToHost();
+
+	matMulCPU(hostA, hostB, gold, numARows, numAColumns, numBColumns, numCColumns, timeOnCPU);
+
+	compareResults();
+
+	std::cout << "Time on CPU: " << timeOnCPU << " ms" << std::endl;
+	std::cout << "Time on GPU: " << timeOnGPU << " ms" << std::endl;
+
+	cleanup();
+}
+
+int main()
+{
+	MatrixMultiplication matMul;
+	matMul.execute();
+	return 0;
 }
