@@ -9,8 +9,6 @@ This repository contains examples and experiments with CUDA programming to explo
 The repository is organized into examples and experiments covering:
 1. **CUDA Basics**: Introduction to CUDA syntax, kernels, and memory management.
 2. **Parallel Processing**: Examples that demonstrate how to perform parallel computations using CUDA.
-3. **Optimization Techniques**: Code samples showcasing techniques to improve GPU performance.
-4. **Advanced Topics**: Experiments with shared memory, streams, and advanced CUDA features.
 
 ## Prerequisites
 To run the examples in this repository, you will need:
