@@ -43,6 +43,7 @@ This repository is designed to help users:
 - Optimize existing examples for better performance.
 
 ## Resources
+- Astromedicomp's HPP Seminar
 - [CUDA Documentation](https://docs.nvidia.com/cuda/)
 - [CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)
 - [NVIDIA Developer Blog](https://developer.nvidia.com/blog)
